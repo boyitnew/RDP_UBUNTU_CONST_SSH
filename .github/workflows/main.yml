@@ -19,17 +19,17 @@ jobs:
           sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config
+          sudo sed -i 's/^#\?PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
           
           # تنظیم پسورد root
           echo "root:13691369" | sudo chpasswd
           
-          # راه‌اندازی مجدد SSH (نام صحیح سرویس: ssh)
+          # غیرفعال کردن فایروال (برای تست)
+          sudo ufw disable || true
+          
+          # راه‌اندازی مجدد SSH
           sudo systemctl restart ssh
           sudo systemctl enable ssh
-          
-          # باز کردن پورت 22 در فایروال
-          sudo ufw allow 22/tcp
-          sudo ufw --force enable
           
           echo "SSH_CREDS=User: root | Password: 13691369" >> $GITHUB_ENV
 
@@ -39,7 +39,7 @@ jobs:
 
       - name: برقراری اتصال Tailscale
         run: |
-          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-ubuntu-ssh-${{ github.run_id }}
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-ubuntu-ssh-${{ github.run_id }} --accept-routes --ssh
           
           retries=0
           TSIP=""
@@ -56,6 +56,9 @@ jobs:
           
           echo "TAILSCALE_IP=$TSIP" >> $GITHUB_ENV
           echo "آدرس IP تِیل‌اِسکِیل: $TSIP"
+          
+          # نمایش وضعیت Tailscale
+          sudo tailscale status
 
       - name: تأیید دسترسی SSH
         run: |
