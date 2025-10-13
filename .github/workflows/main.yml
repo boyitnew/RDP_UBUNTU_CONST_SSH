@@ -14,27 +14,30 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y openssh-server
 
-          # پیکربندی مجوزهای SSH
+          # پیکربندی SSH برای ورود root با رمز عبور
           sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config
           sudo sed -i 's/^#\?PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
 
-          # تنظیم پسورد root
+          # تنظیم رمز root
           echo "root:13691369" | sudo chpasswd
 
-          # غیرفعال کردن فایروال
-          sudo ufw disable || true
-
-          # اطمینان از وجود دایرکتوری مورد نیاز sshd
+          # ساخت مسیر لازم برای sshd
           sudo mkdir -p /var/run/sshd
 
-          # اجرای سرویس SSH (بدون systemctl)
-          sudo service ssh start || sudo /usr/sbin/sshd -D &
+          # اجرای دستی sshd در پس‌زمینه
+          sudo /usr/sbin/sshd -D &
 
-          # بررسی اجرای sshd
-          pgrep -x sshd || (echo "❌ SSHD شروع نشد" && exit 1)
+          sleep 2
+          ps aux | grep sshd || true
 
+          if ! pgrep -x sshd > /dev/null; then
+            echo "❌ سرویس SSH اجرا نشد"
+            exit 1
+          fi
+
+          echo "✅ سرویس SSH با موفقیت راه‌اندازی شد"
           echo "SSH_CREDS=User: root | Password: 13691369" >> $GITHUB_ENV
 
       - name: نصب Tailscale
@@ -61,7 +64,7 @@ jobs:
           echo "TAILSCALE_IP=$TSIP" >> $GITHUB_ENV
           echo "✅ آدرس IP تِیل‌اِسکِیل: $TSIP"
 
-      - name: تأیید دسترسی SSH
+      - name: تأیید وضعیت SSH
         run: |
           echo "🔍 بررسی سرویس SSH روی IP: $TAILSCALE_IP"
 
@@ -75,7 +78,7 @@ jobs:
               exit 1
           fi
 
-          echo "✅ سرویس SSH با موفقیت راه‌اندازی شد"
+          echo "✅ سرویس SSH در پورت 22 فعال است"
 
       - name: حفظ اتصال تا توقف دستی
         run: |
