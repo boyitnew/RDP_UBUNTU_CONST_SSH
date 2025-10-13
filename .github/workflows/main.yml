@@ -17,24 +17,26 @@ jobs:
           # پیکربندی SSH برای ورود root با رمز عبور
           sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/^#\?UsePAM.*/UsePAM no/' /etc/ssh/sshd_config
           sudo sed -i 's/^#\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config
           sudo sed -i 's/^#\?PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
 
           # تنظیم رمز root
           echo "root:13691369" | sudo chpasswd
 
-          # ساخت مسیر لازم برای sshd
-          sudo mkdir -p /var/run/sshd
+          # اطمینان از وجود مسیرهای لازم
+          sudo mkdir -p /var/run/sshd /run/sshd
+          sudo ssh-keygen -A  # تولید کلیدهای میزبان
 
-          # اجرای دستی sshd در پس‌زمینه
-          sudo /usr/sbin/sshd -D &
+          # اجرای sshd به‌صورت دستی و بدون PAM
+          echo "✅ در حال راه‌اندازی SSHD..."
+          sudo /usr/sbin/sshd -D -e &
 
-          sleep 2
-          ps aux | grep sshd || true
-
+          sleep 3
           if ! pgrep -x sshd > /dev/null; then
-            echo "❌ سرویس SSH اجرا نشد"
-            exit 1
+              echo "❌ SSHD اجرا نشد — بررسی خطا"
+              sudo /usr/sbin/sshd -D -e
+              exit 1
           fi
 
           echo "✅ سرویس SSH با موفقیت راه‌اندازی شد"
