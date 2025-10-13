@@ -11,6 +11,10 @@ jobs:
     steps:
       - name: فعال‌سازی SSH و پیکربندی Root
         run: |
+          # نصب OpenSSH Server (اگر نصب نیست)
+          sudo apt-get update
+          sudo apt-get install -y openssh-server
+          
           # فعال کردن احراز هویت با پسورد در SSH
           sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
@@ -19,8 +23,9 @@ jobs:
           # تنظیم پسورد root
           echo "root:13691369" | sudo chpasswd
           
-          # راه‌اندازی مجدد SSH
-          sudo systemctl restart sshd
+          # راه‌اندازی مجدد SSH (نام صحیح سرویس: ssh)
+          sudo systemctl restart ssh
+          sudo systemctl enable ssh
           
           # باز کردن پورت 22 در فایروال
           sudo ufw allow 22/tcp
@@ -56,12 +61,12 @@ jobs:
         run: |
           echo "آدرس IP تِیل‌اِسکِیل: $TAILSCALE_IP"
           
-          if ! sudo systemctl is-active --quiet sshd; then
+          if ! sudo systemctl is-active --quiet ssh; then
               echo "سرویس SSH فعال نیست"
               exit 1
           fi
           
-          if ! sudo netstat -tuln | grep :22; then
+          if ! sudo ss -tuln | grep :22; then
               echo "SSH روی پورت 22 در حال گوش دادن نیست"
               exit 1
           fi
@@ -84,5 +89,5 @@ jobs:
           
           while true; do
               echo "[$(date)] SSH فعال - برای خاتمه دادن از دکمه لغو Workflow استفاده کنید"
-              sleep 15000
+              sleep 300
           done
