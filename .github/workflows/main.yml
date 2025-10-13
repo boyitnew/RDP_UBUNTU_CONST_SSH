@@ -11,26 +11,30 @@ jobs:
     steps:
       - name: فعال‌سازی SSH و پیکربندی Root
         run: |
-          # نصب OpenSSH Server (اگر نصب نیست)
           sudo apt-get update
           sudo apt-get install -y openssh-server
-          
-          # فعال کردن احراز هویت با پسورد در SSH
+
+          # پیکربندی مجوزهای SSH
           sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config
           sudo sed -i 's/^#\?PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
-          
+
           # تنظیم پسورد root
           echo "root:13691369" | sudo chpasswd
-          
-          # غیرفعال کردن فایروال (برای تست)
+
+          # غیرفعال کردن فایروال
           sudo ufw disable || true
-          
-          # راه‌اندازی مجدد SSH
-          sudo systemctl restart ssh
-          sudo systemctl enable ssh
-          
+
+          # اطمینان از وجود دایرکتوری مورد نیاز sshd
+          sudo mkdir -p /var/run/sshd
+
+          # اجرای سرویس SSH (بدون systemctl)
+          sudo service ssh start || sudo /usr/sbin/sshd -D &
+
+          # بررسی اجرای sshd
+          pgrep -x sshd || (echo "❌ SSHD شروع نشد" && exit 1)
+
           echo "SSH_CREDS=User: root | Password: 13691369" >> $GITHUB_ENV
 
       - name: نصب Tailscale
@@ -44,39 +48,36 @@ jobs:
           retries=0
           TSIP=""
           while [ -z "$TSIP" ] && [ $retries -lt 10 ]; do
-              TSIP=$(tailscale ip -4)
+              TSIP=$(tailscale ip -4 | head -n 1)
               sleep 5
               retries=$((retries + 1))
           done
           
           if [ -z "$TSIP" ]; then
-              echo "آدرس IP تِیل‌اِسکِیل تخصیص داده نشد. خروج."
+              echo "❌ آدرس IP تِیل‌اِسکِیل تخصیص داده نشد."
               exit 1
           fi
           
           echo "TAILSCALE_IP=$TSIP" >> $GITHUB_ENV
-          echo "آدرس IP تِیل‌اِسکِیل: $TSIP"
-          
-          # نمایش وضعیت Tailscale
-          sudo tailscale status
+          echo "✅ آدرس IP تِیل‌اِسکِیل: $TSIP"
 
       - name: تأیید دسترسی SSH
         run: |
-          echo "آدرس IP تِیل‌اِسکِیل: $TAILSCALE_IP"
-          
-          if ! sudo systemctl is-active --quiet ssh; then
-              echo "سرویس SSH فعال نیست"
-              exit 1
-          fi
-          
-          if ! sudo ss -tuln | grep :22; then
-              echo "SSH روی پورت 22 در حال گوش دادن نیست"
-              exit 1
-          fi
-          
-          echo "سرویس SSH با موفقیت راه‌اندازی شد"
+          echo "🔍 بررسی سرویس SSH روی IP: $TAILSCALE_IP"
 
-      - name: حفظ اتصال
+          if ! pgrep -x sshd > /dev/null; then
+              echo "❌ سرویس SSH فعال نیست"
+              exit 1
+          fi
+
+          if ! sudo ss -tuln | grep -q ':22 '; then
+              echo "❌ SSH روی پورت 22 در حال گوش دادن نیست"
+              exit 1
+          fi
+
+          echo "✅ سرویس SSH با موفقیت راه‌اندازی شد"
+
+      - name: حفظ اتصال تا توقف دستی
         run: |
           echo ""
           echo "=== اطلاعات دسترسی SSH ==="
@@ -86,11 +87,11 @@ jobs:
           echo "پورت (Port): 22"
           echo "============================"
           echo ""
-          echo "دستور اتصال:"
+          echo "📡 برای اتصال از دستور زیر استفاده کن:"
           echo "ssh root@$TAILSCALE_IP"
           echo ""
           
           while true; do
-              echo "[$(date)] SSH فعال - برای خاتمه دادن از دکمه لغو Workflow استفاده کنید"
+              echo "[$(date)] ✅ SSH فعال است - برای توقف، Workflow را Cancel کنید"
               sleep 300
           done
