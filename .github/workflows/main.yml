@@ -1,0 +1,88 @@
+name: Ubuntu SSH
+
+on:
+  workflow_dispatch:
+
+jobs:
+  ubuntu-ssh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3600
+
+    steps:
+      - name: فعال‌سازی SSH و پیکربندی Root
+        run: |
+          # فعال کردن احراز هویت با پسورد در SSH
+          sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/^#\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config
+          
+          # تنظیم پسورد root
+          echo "root:13691369" | sudo chpasswd
+          
+          # راه‌اندازی مجدد SSH
+          sudo systemctl restart sshd
+          
+          # باز کردن پورت 22 در فایروال
+          sudo ufw allow 22/tcp
+          sudo ufw --force enable
+          
+          echo "SSH_CREDS=User: root | Password: 13691369" >> $GITHUB_ENV
+
+      - name: نصب Tailscale
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sh
+
+      - name: برقراری اتصال Tailscale
+        run: |
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-ubuntu-ssh-${{ github.run_id }}
+          
+          retries=0
+          TSIP=""
+          while [ -z "$TSIP" ] && [ $retries -lt 10 ]; do
+              TSIP=$(tailscale ip -4)
+              sleep 5
+              retries=$((retries + 1))
+          done
+          
+          if [ -z "$TSIP" ]; then
+              echo "آدرس IP تِیل‌اِسکِیل تخصیص داده نشد. خروج."
+              exit 1
+          fi
+          
+          echo "TAILSCALE_IP=$TSIP" >> $GITHUB_ENV
+          echo "آدرس IP تِیل‌اِسکِیل: $TSIP"
+
+      - name: تأیید دسترسی SSH
+        run: |
+          echo "آدرس IP تِیل‌اِسکِیل: $TAILSCALE_IP"
+          
+          if ! sudo systemctl is-active --quiet sshd; then
+              echo "سرویس SSH فعال نیست"
+              exit 1
+          fi
+          
+          if ! sudo netstat -tuln | grep :22; then
+              echo "SSH روی پورت 22 در حال گوش دادن نیست"
+              exit 1
+          fi
+          
+          echo "سرویس SSH با موفقیت راه‌اندازی شد"
+
+      - name: حفظ اتصال
+        run: |
+          echo ""
+          echo "=== اطلاعات دسترسی SSH ==="
+          echo "آدرس (IP): $TAILSCALE_IP"
+          echo "نام کاربری (Username): root"
+          echo "رمز عبور (Password): 13691369"
+          echo "پورت (Port): 22"
+          echo "============================"
+          echo ""
+          echo "دستور اتصال:"
+          echo "ssh root@$TAILSCALE_IP"
+          echo ""
+          
+          while true; do
+              echo "[$(date)] SSH فعال - برای خاتمه دادن از دکمه لغو Workflow استفاده کنید"
+              sleep 15000
+          done
