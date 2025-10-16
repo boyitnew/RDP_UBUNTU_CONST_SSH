@@ -1,102 +1,127 @@
-name: Ubuntu SSH
+name: SSH
 
 on:
   workflow_dispatch:
 
 jobs:
-  ubuntu-ssh:
+  secure-ssh:
     runs-on: ubuntu-latest
     timeout-minutes: 3600
 
     steps:
-      - name: فعال‌سازی SSH و پیکربندی Root
+      - name: Configure SSH Settings
         run: |
+          # Update package list
           sudo apt-get update
+          
+          # Install OpenSSH Server if not present
           sudo apt-get install -y openssh-server
+          
+          # Enable and start SSH service
+          sudo systemctl enable ssh
+          sudo systemctl start ssh
+          
+          # Configure SSH to allow password authentication
+          sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
+          
+          # Restart SSH service to apply changes
+          sudo systemctl restart ssh
+          
+          # Configure firewall to allow SSH (port 22)
+          sudo ufw allow 22/tcp
+          
+          echo "SSH configured successfully"
 
-          # پیکربندی SSH برای ورود root با رمز عبور
-          sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
-          sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
-          sudo sed -i 's/^#\?UsePAM.*/UsePAM no/' /etc/ssh/sshd_config
-          sudo sed -i 's/^#\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config
-          sudo sed -i 's/^#\?PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
-
-          # تنظیم رمز root
-          echo "root:13691369" | sudo chpasswd
-
-          # اطمینان از وجود مسیرهای لازم
-          sudo mkdir -p /var/run/sshd /run/sshd
-          sudo ssh-keygen -A  # تولید کلیدهای میزبان
-
-          # اجرای sshd به‌صورت دستی و بدون PAM
-          echo "✅ در حال راه‌اندازی SSHD..."
-          sudo /usr/sbin/sshd -D -e &
-
-          sleep 3
-          if ! pgrep -x sshd > /dev/null; then
-              echo "❌ SSHD اجرا نشد — بررسی خطا"
-              sudo /usr/sbin/sshd -D -e
+      - name: Create SSH User with Fixed Password
+        run: |
+          # Set your fixed password here
+          PASSWORD="*r96319631P-"
+          
+          # Create user with the fixed password
+          sudo useradd -m -s /bin/bash SSH
+          echo "SSH:$PASSWORD" | sudo chpasswd
+          
+          # Add user to sudo group for admin privileges
+          sudo usermod -aG sudo SSH
+          
+          # Store credentials in environment
+          echo "SSH_CREDS=User: SSH | Password: $PASSWORD" >> $GITHUB_ENV
+          
+          # Verify user creation
+          if ! id "SSH" &>/dev/null; then
+              echo "User creation failed"
               exit 1
           fi
-
-          echo "✅ سرویس SSH با موفقیت راه‌اندازی شد"
-          echo "SSH_CREDS=User: root | Password: 13691369" >> $GITHUB_ENV
-
-      - name: نصب Tailscale
-        run: |
-          curl -fsSL https://tailscale.com/install.sh | sh
-
-      - name: برقراری اتصال Tailscale
-        run: |
-          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-ubuntu-ssh-${{ github.run_id }} --accept-routes --ssh
           
-          retries=0
-          TSIP=""
-          while [ -z "$TSIP" ] && [ $retries -lt 10 ]; do
-              TSIP=$(tailscale ip -4 | head -n 1)
+          echo "User SSH created successfully"
+
+      - name: Install Tailscale
+        run: |
+          # Add Tailscale's package signing key and repository
+          curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/jammy.noarmor.gpg | sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+          curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/jammy.tailscale-keyring.list | sudo tee /etc/apt/sources.list.d/tailscale.list
+          
+          # Install Tailscale
+          sudo apt-get update
+          sudo apt-get install -y tailscale
+          
+          echo "Tailscale installed successfully"
+
+      - name: Establish Tailscale Connection
+        run: |
+          # Bring up Tailscale with the provided auth key and set a unique hostname
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$GITHUB_RUN_ID
+          
+          # Wait for Tailscale to assign an IP
+          TAILSCALE_IP=""
+          RETRIES=0
+          while [ -z "$TAILSCALE_IP" ] && [ $RETRIES -lt 10 ]; do
+              TAILSCALE_IP=$(tailscale ip -4)
               sleep 5
-              retries=$((retries + 1))
+              RETRIES=$((RETRIES + 1))
           done
           
-          if [ -z "$TSIP" ]; then
-              echo "❌ آدرس IP تِیل‌اِسکِیل تخصیص داده نشد."
+          if [ -z "$TAILSCALE_IP" ]; then
+              echo "Tailscale IP not assigned. Exiting."
               exit 1
           fi
           
-          echo "TAILSCALE_IP=$TSIP" >> $GITHUB_ENV
-          echo "✅ آدرس IP تِیل‌اِسکِیل: $TSIP"
+          echo "TAILSCALE_IP=$TAILSCALE_IP" >> $GITHUB_ENV
+          echo "Tailscale connected with IP: $TAILSCALE_IP"
 
-      - name: تأیید وضعیت SSH
+      - name: Verify SSH Accessibility
         run: |
-          echo "🔍 بررسی سرویس SSH روی IP: $TAILSCALE_IP"
-
-          if ! pgrep -x sshd > /dev/null; then
-              echo "❌ سرویس SSH فعال نیست"
+          echo "Tailscale IP: $TAILSCALE_IP"
+          
+          # Check if SSH service is running
+          sudo systemctl status ssh --no-pager
+          
+          # Test SSH port locally
+          if nc -zv localhost 22 2>&1 | grep -q succeeded; then
+              echo "SSH port 22 is accessible"
+          else
+              echo "SSH port 22 is NOT accessible"
               exit 1
           fi
+          
+          echo "SSH connectivity verified successfully"
 
-          if ! sudo ss -tuln | grep -q ':22 '; then
-              echo "❌ SSH روی پورت 22 در حال گوش دادن نیست"
-              exit 1
-          fi
-
-          echo "✅ سرویس SSH در پورت 22 فعال است"
-
-      - name: حفظ اتصال تا توقف دستی
+      - name: Maintain Connection
         run: |
           echo ""
-          echo "=== اطلاعات دسترسی SSH ==="
-          echo "آدرس (IP): $TAILSCALE_IP"
-          echo "نام کاربری (Username): root"
-          echo "رمز عبور (Password): 13691369"
-          echo "پورت (Port): 22"
-          echo "============================"
+          echo "=== SSH ACCESS ==="
+          echo "Address: $TAILSCALE_IP"
+          echo "Port: 22"
+          echo "Username: SSH"
+          echo "Password: *r96319631P-"
+          echo "=================="
           echo ""
-          echo "📡 برای اتصال از دستور زیر استفاده کن:"
-          echo "ssh root@$TAILSCALE_IP"
+          echo "Connect using: ssh SSH@$TAILSCALE_IP"
           echo ""
           
+          # Keep runner active indefinitely (or until manually cancelled)
           while true; do
-              echo "[$(date)] ✅ SSH فعال است - برای توقف، Workflow را Cancel کنید"
+              echo "[$(date)] SSH Active - Use 'Cancel workflow' button to terminate"
               sleep 300
           done
